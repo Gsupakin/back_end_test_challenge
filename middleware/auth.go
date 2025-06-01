@@ -19,12 +19,14 @@ func JWTAuth() gin.HandlerFunc {
 
 		tokenStr := strings.Split(authHeader, "Bearer ")[1]
 
-		token, err := jwt.ValidateToken(tokenStr)
-		if err != nil || !token.Valid {
+		claims, err := jwt.ValidateToken(tokenStr)
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
 		}
 
+		// เก็บ user_id ไว้ใช้ใน handler
+		c.Set("user_id", claims.UserID)
 		c.Next()
 	}
 }

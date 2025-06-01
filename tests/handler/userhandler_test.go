@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-	"time"
 
 	"github.com/Gsupakin/back_end_test_challeng/internal/application"
 	"github.com/Gsupakin/back_end_test_challeng/internal/domain"
@@ -39,12 +38,6 @@ func setupTest() (*gin.Engine, *application.UserHandler, *mongo.Client) {
 	db := client.Database("Test")
 	userCollection := db.Collection("users")
 	logCollection := db.Collection("request_logs")
-
-	// ล้างข้อมูลเก่า
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	userCollection.Drop(ctx)
-	logCollection.Drop(ctx)
 
 	userHandler := &application.UserHandler{
 		Collection:    userCollection,
@@ -84,8 +77,14 @@ func TestRegister(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+
 		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusCreated, w.Code)
+		assert.NotEmpty(t, response["InsertedID"])
 	})
 
 	t.Run("Register Duplicate Email", func(t *testing.T) {
@@ -169,16 +168,20 @@ func TestLogin(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code)
 		var response map[string]string
 		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
+		assert.Equal(t, http.StatusOK, w.Code)
 		assert.NotEmpty(t, response["token"])
 	})
 
 	t.Run("Login Invalid Credentials", func(t *testing.T) {
 		creds := domain.User{
 			Email:    "test@example.com",
-			Password: "wrongpassword",
+			Password: "123456",
 		}
 		jsonData, _ := json.Marshal(creds)
 
@@ -187,7 +190,14 @@ func TestLogin(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, response["error"], "Invalid email or password")
 	})
 }
 
@@ -207,7 +217,6 @@ func TestUserOperations(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
 
-	// เก็บ ID ของ user ที่สร้าง
 	var response map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &response)
 	insertedID := response["InsertedID"].(string)
@@ -231,7 +240,14 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response []domain.User
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Greater(t, len(response), 0)
 	})
 
 	t.Run("Get User By ID - Success", func(t *testing.T) {
@@ -240,7 +256,14 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response domain.User
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, insertedID, response.ID.Hex())
 	})
 
 	t.Run("Get User By ID - Invalid ID Format", func(t *testing.T) {
@@ -249,7 +272,14 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, response["error"], "Invalid user ID format")
 	})
 
 	t.Run("Get User By ID - Not Found", func(t *testing.T) {
@@ -273,7 +303,14 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, response["message"], "User updated successfully")
 	})
 
 	t.Run("Update User - Invalid ID Format", func(t *testing.T) {
@@ -338,7 +375,14 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, response["message"], "User deleted successfully")
 	})
 
 	t.Run("Delete User - Invalid ID Format", func(t *testing.T) {
