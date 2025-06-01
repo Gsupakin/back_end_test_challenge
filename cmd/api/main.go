@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/Gsupakin/back_end_test_challeng/internal/application"
 	"github.com/Gsupakin/back_end_test_challeng/internal/infrastructure"
 	"github.com/Gsupakin/back_end_test_challeng/middleware"
@@ -10,9 +12,12 @@ import (
 )
 
 func main() {
-	godotenv.Load()
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 	client := infrastructure.ConnectMongo()
-	db := client.Database("yourdb")
+	db := client.Database("Test")
 	userCollection := db.Collection("users")
 	logCollection := db.Collection("request_logs") // ✅ ใช้ log collection
 

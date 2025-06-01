@@ -11,18 +11,26 @@ import (
 )
 
 func ConnectMongo() *mongo.Client {
-	client, err := mongo.NewClient(options.Client().ApplyURI(os.Getenv("MONGO_URI")))
-	if err != nil {
-		log.Fatal(err)
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		log.Fatal("MONGO_URI not set in environment")
 	}
+
+	clientOpts := options.Client().ApplyURI(uri)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err = client.Connect(ctx)
+	client, err := mongo.Connect(ctx, clientOpts)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
+	// ตรวจสอบ connection
+	if err := client.Ping(ctx, nil); err != nil {
+		log.Fatalf("MongoDB ping failed: %v", err)
+	}
+
+	log.Println("✅ Connected to MongoDB")
 	return client
 }

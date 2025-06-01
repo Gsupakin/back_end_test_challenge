@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -16,13 +17,63 @@ import (
 )
 
 type UserHandler struct {
-	Collection *mongo.Collection
+	Collection    *mongo.Collection
+	LogCollection *mongo.Collection
 }
 
 func (h *UserHandler) Register(c *gin.Context) {
 	var user domain.User
 	if err := c.BindJSON(&user); err != nil {
+		// บันทึก log error
+		h.LogCollection.InsertOne(context.Background(), bson.M{
+			"endpoint":   "/register",
+			"method":     "POST",
+			"status":     http.StatusBadRequest,
+			"error":      err.Error(),
+			"created_at": time.Now(),
+		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	log.Printf("Attempting to register user with email: %s", user.Email)
+
+	// ตรวจสอบ email ซ้ำ
+	var existingUser domain.User
+	err := h.Collection.FindOne(context.Background(), bson.M{
+		"email":      user.Email,
+		"deleted_at": nil,
+	}).Decode(&existingUser)
+	if err == nil {
+		// บันทึก log email ซ้ำ
+		h.LogCollection.InsertOne(context.Background(), bson.M{
+			"endpoint":   "/register",
+			"method":     "POST",
+			"status":     http.StatusInternalServerError,
+			"error":      "Email already exists",
+			"email":      user.Email,
+			"created_at": time.Now(),
+		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Email already exists"})
+		return
+	}
+
+	// ตรวจสอบ name ซ้ำ
+	err = h.Collection.FindOne(context.Background(), bson.M{
+		"name":       user.Name,
+		"deleted_at": nil,
+	}).Decode(&existingUser)
+	if err == nil {
+		// บันทึก log name ซ้ำ
+		h.LogCollection.InsertOne(context.Background(), bson.M{
+			"endpoint":   "/register",
+			"method":     "POST",
+			"status":     http.StatusInternalServerError,
+			"error":      "Name already exists",
+			"name":       user.Name,
+			"created_at": time.Now(),
+		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Name already exists"})
 		return
 	}
 
@@ -32,10 +83,29 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 	res, err := h.Collection.InsertOne(context.Background(), user)
 	if err != nil {
+		// บันทึก log error
+		h.LogCollection.InsertOne(context.Background(), bson.M{
+			"endpoint":   "/register",
+			"method":     "POST",
+			"status":     http.StatusInternalServerError,
+			"error":      err.Error(),
+			"created_at": time.Now(),
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
+	// บันทึก log สำเร็จ
+	h.LogCollection.InsertOne(context.Background(), bson.M{
+		"endpoint":   "/register",
+		"method":     "POST",
+		"status":     http.StatusCreated,
+		"user_id":    res.InsertedID,
+		"email":      user.Email,
+		"created_at": time.Now(),
+	})
+
+	log.Printf("Successfully registered user with ID: %v", res.InsertedID)
 	c.JSON(http.StatusCreated, res)
 }
 
@@ -110,9 +180,33 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	update := bson.M{}
 	if updateData.Name != "" {
+		// ตรวจสอบ name ซ้ำ
+		var existingUser domain.User
+		err := h.Collection.FindOne(context.Background(), bson.M{
+			"name": updateData.Name,
+			"_id": bson.M{
+				"$ne": objID,
+			},
+		}).Decode(&existingUser)
+		if err == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Name already exists"})
+			return
+		}
 		update["name"] = updateData.Name
 	}
 	if updateData.Email != "" {
+		// ตรวจสอบ email ซ้ำ
+		var existingUser domain.User
+		err := h.Collection.FindOne(context.Background(), bson.M{
+			"email": updateData.Email,
+			"_id": bson.M{
+				"$ne": objID,
+			},
+		}).Decode(&existingUser)
+		if err == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Email already exists"})
+			return
+		}
 		update["email"] = updateData.Email
 	}
 	update["updated_at"] = time.Now()
@@ -128,10 +222,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			"_id":        objID,
 			"deleted_at": nil,
 		},
-		bson.M{"$set": bson.M{
-			"deleted_at": time.Now(),
-			"updated_at": time.Now(),
-		}},
+		bson.M{"$set": update},
 	)
 
 	if err != nil {
