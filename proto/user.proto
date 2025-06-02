@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package user;
+
+option go_package = "github.com/Gsupakin/back_end_test_challeng/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// User service definition
+service UserService {
+  // CreateUser creates a new user
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {}
+  // GetUser retrieves a user by ID
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {}
+}
+
+// User message definition
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+// CreateUserRequest message definition
+message CreateUserRequest {
+  string name = 1;
+  string email = 2;
+  string password = 3;
+}
+
+// CreateUserResponse message definition
+message CreateUserResponse {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+// GetUserRequest message definition
+message GetUserRequest {
+  string id = 1;
+}
+
+// GetUserResponse message definition
+message GetUserResponse {
+  User user = 1;
+} 

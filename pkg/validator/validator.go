@@ -53,28 +53,6 @@ func ValidatePassword(password string) error {
 		return ErrInvalidPassword
 	}
 
-	// ตรวจสอบว่ามีตัวพิมพ์ใหญ่หรือไม่
-	hasUpper := false
-	// ตรวจสอบว่ามีตัวพิมพ์เล็กหรือไม่
-	hasLower := false
-	// ตรวจสอบว่ามีตัวเลขหรือไม่
-	hasNumber := false
-
-	for _, char := range password {
-		switch {
-		case 'A' <= char && char <= 'Z':
-			hasUpper = true
-		case 'a' <= char && char <= 'z':
-			hasLower = true
-		case '0' <= char && char <= '9':
-			hasNumber = true
-		}
-	}
-
-	if !hasUpper || !hasLower || !hasNumber {
-		return ErrInvalidPassword
-	}
-
 	return nil
 }
 
