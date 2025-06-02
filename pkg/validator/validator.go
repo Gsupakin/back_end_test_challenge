@@ -7,10 +7,10 @@ import (
 )
 
 var (
-	ErrEmptyField      = errors.New("field is required")
-	ErrInvalidEmail    = errors.New("invalid email format")
-	ErrInvalidName     = errors.New("name must be between 2 and 50 characters")
-	ErrInvalidPassword = errors.New("password must be at least 6 characters and contain at least one uppercase letter, one lowercase letter, and one number")
+	ErrEmptyField      = errors.New("กรุณากรอกข้อมูล")
+	ErrInvalidEmail    = errors.New("รูปแบบอีเมลไม่ถูกต้อง")
+	ErrInvalidName     = errors.New("ชื่อต้องมีความยาว 2-50 ตัวอักษร")
+	ErrInvalidPassword = errors.New("รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร และต้องมีตัวพิมพ์ใหญ่ ตัวพิมพ์เล็ก และตัวเลขอย่างน้อย 1 ตัว")
 )
 
 // ValidateEmail ตรวจสอบรูปแบบของ email
@@ -25,6 +25,11 @@ func ValidateEmail(email string) error {
 		return ErrInvalidEmail
 	}
 
+	// ตรวจสอบความยาวของอีเมล
+	if len(email) > 100 {
+		return errors.New("อีเมลยาวเกินไป")
+	}
+
 	return nil
 }
 
@@ -35,8 +40,14 @@ func ValidateName(name string) error {
 	}
 
 	// ตรวจสอบความยาวของชื่อ
-	if len(strings.TrimSpace(name)) < 2 || len(name) > 50 {
+	name = strings.TrimSpace(name)
+	if len(name) < 2 || len(name) > 50 {
 		return ErrInvalidName
+	}
+
+	// ตรวจสอบว่ามีตัวอักษรพิเศษหรือไม่
+	if !regexp.MustCompile(`^[a-zA-Z0-9ก-๙\s]+$`).MatchString(name) {
+		return errors.New("ชื่อต้องประกอบด้วยตัวอักษร ตัวเลข และช่องว่างเท่านั้น")
 	}
 
 	return nil
@@ -48,8 +59,8 @@ func ValidatePassword(password string) error {
 		return ErrEmptyField
 	}
 
-	// ตรวจสอบความยาวขั้นต่ำ
-	if len(password) < 6 {
+	// ตรวจสอบความยาวของรหัสผ่าน
+	if len(password) < 6 || len(password) > 20 {
 		return ErrInvalidPassword
 	}
 
