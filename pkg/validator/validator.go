@@ -60,7 +60,7 @@ func ValidatePassword(password string) error {
 	}
 
 	// ตรวจสอบความยาวของรหัสผ่าน
-	if len(password) < 6 || len(password) > 20 {
+	if len(password) < 6 {
 		return ErrInvalidPassword
 	}
 

@@ -2,7 +2,7 @@ module github.com/Gsupakin/back_end_test_challeng
 
 go 1.23.0
 
-toolchain go1.23.9
+toolchain go1.24.3
 
 require (
 	github.com/gin-gonic/gin v1.9.1
@@ -10,8 +10,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.8.4
 	go.mongodb.org/mongo-driver v1.13.1
-	golang.org/x/crypto v0.38.0
-	google.golang.org/grpc v1.72.2
+	golang.org/x/crypto v0.21.0
+	google.golang.org/grpc v1.64.0
 	google.golang.org/protobuf v1.36.6
 )
 
@@ -43,7 +43,7 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d // indirect
 	golang.org/x/arch v0.3.0 // indirect
-	golang.org/x/net v0.40.0 // indirect
+	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
