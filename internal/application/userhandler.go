@@ -1,34 +1,40 @@
 package application
 
 import (
-	"context"
 	"net/http"
 	"time"
 
 	"github.com/Gsupakin/back_end_test_challeng/internal/domain"
 	"github.com/Gsupakin/back_end_test_challeng/pkg/jwt"
 	"github.com/Gsupakin/back_end_test_challeng/pkg/utils"
+	"github.com/Gsupakin/back_end_test_challeng/pkg/validator"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type UserHandler struct {
-	Collection    *mongo.Collection
-	LogCollection *mongo.Collection
+	userRepo domain.UserRepository
+	logRepo  domain.LogRepository
+}
+
+func NewUserHandler(userRepo domain.UserRepository, logRepo domain.LogRepository) *UserHandler {
+	return &UserHandler{
+		userRepo: userRepo,
+		logRepo:  logRepo,
+	}
 }
 
 func (h *UserHandler) Register(c *gin.Context) {
 	// ตรวจสอบ Content-Type
 	if c.GetHeader("Content-Type") != "application/json" {
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusBadRequest,
-			"error":      "Content-Type must be application/json",
-			"created_at": time.Now(),
+		h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+			Method:    "POST",
+			Path:      "/register",
+			Status:    http.StatusBadRequest,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Timestamp: time.Now(),
 		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Content-Type must be application/json"})
 		return
@@ -36,135 +42,71 @@ func (h *UserHandler) Register(c *gin.Context) {
 
 	var user domain.User
 	if err := c.BindJSON(&user); err != nil {
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusBadRequest,
-			"error":      err.Error(),
-			"created_at": time.Now(),
+		h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+			Method:    "POST",
+			Path:      "/register",
+			Status:    http.StatusBadRequest,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Timestamp: time.Now(),
 		})
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// ตรวจสอบข้อมูลที่จำเป็น
-	if user.Email == "" || user.Name == "" || user.Password == "" {
-		errorMsg := "Missing required fields"
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusBadRequest,
-			"error":      errorMsg,
-			"email":      user.Email,
-			"name":       user.Name,
-			"created_at": time.Now(),
+	// ตรวจสอบข้อมูลที่รับเข้ามา
+	if err := validator.ValidateUserInput(user.Name, user.Email, user.Password); err != nil {
+		h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+			Method:    "POST",
+			Path:      "/register",
+			Status:    http.StatusBadRequest,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Timestamp: time.Now(),
 		})
-		c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
-		return
-	}
-
-	// ตรวจสอบรูปแบบ email
-	if !utils.IsValidEmail(user.Email) {
-		errorMsg := "Invalid email format"
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusBadRequest,
-			"error":      errorMsg,
-			"email":      user.Email,
-			"created_at": time.Now(),
-		})
-		c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
-		return
-	}
-
-	// ตรวจสอบความยาวของ password
-	if len(user.Password) < 6 {
-		errorMsg := "Password must be at least 6 characters"
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusBadRequest,
-			"error":      errorMsg,
-			"email":      user.Email,
-			"created_at": time.Now(),
-		})
-		c.JSON(http.StatusBadRequest, gin.H{"error": errorMsg})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	// ตรวจสอบ email ซ้ำ
-	var existingUser domain.User
-	err := h.Collection.FindOne(context.Background(), bson.M{
-		"email": user.Email,
-	}).Decode(&existingUser)
-
+	_, err := h.userRepo.FindByEmail(c.Request.Context(), user.Email)
 	if err == nil {
-		// กรณีพบ email ซ้ำ
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusInternalServerError,
-			"error":      "Email already exists",
-			"email":      user.Email,
-			"created_at": time.Now(),
+		h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+			Method:    "POST",
+			Path:      "/register",
+			Status:    http.StatusInternalServerError,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Timestamp: time.Now(),
 		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Email already exists"})
-		return
-	} else if err != mongo.ErrNoDocuments {
-		// กรณีเกิด error อื่นๆ
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusInternalServerError,
-			"error":      err.Error(),
-			"email":      user.Email,
-			"created_at": time.Now(),
-		})
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
 
 	// ตรวจสอบ name ซ้ำ
-	err = h.Collection.FindOne(context.Background(), bson.M{
-		"name": user.Name,
-	}).Decode(&existingUser)
-
+	_, err = h.userRepo.FindByName(c.Request.Context(), user.Name)
 	if err == nil {
-		// กรณีพบ name ซ้ำ
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusInternalServerError,
-			"error":      "Name already exists",
-			"name":       user.Name,
-			"created_at": time.Now(),
+		h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+			Method:    "POST",
+			Path:      "/register",
+			Status:    http.StatusInternalServerError,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Timestamp: time.Now(),
 		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Name already exists"})
-		return
-	} else if err != mongo.ErrNoDocuments {
-		// กรณีเกิด error อื่นๆ
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusInternalServerError,
-			"error":      err.Error(),
-			"name":       user.Name,
-			"created_at": time.Now(),
-		})
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
 
 	hashedPass, err := utils.HashPassword(user.Password)
 	if err != nil {
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusInternalServerError,
-			"error":      "Failed to hash password",
-			"email":      user.Email,
-			"created_at": time.Now(),
+		h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+			Method:    "POST",
+			Path:      "/register",
+			Status:    http.StatusInternalServerError,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Timestamp: time.Now(),
 		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
@@ -172,34 +114,30 @@ func (h *UserHandler) Register(c *gin.Context) {
 	user.Password = hashedPass
 	user.CreatedAt = time.Now()
 
-	res, err := h.Collection.InsertOne(context.Background(), user)
+	id, err := h.userRepo.Create(c.Request.Context(), user)
 	if err != nil {
-		// บันทึก log error
-		h.LogCollection.InsertOne(context.Background(), bson.M{
-			"endpoint":   "/register",
-			"method":     "POST",
-			"status":     http.StatusInternalServerError,
-			"error":      err.Error(),
-			"email":      user.Email,
-			"name":       user.Name,
-			"created_at": time.Now(),
+		h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+			Method:    "POST",
+			Path:      "/register",
+			Status:    http.StatusInternalServerError,
+			IP:        c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Timestamp: time.Now(),
 		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// บันทึก log สำเร็จ
-	h.LogCollection.InsertOne(context.Background(), bson.M{
-		"endpoint":   "/register",
-		"method":     "POST",
-		"status":     http.StatusCreated,
-		"user_id":    res.InsertedID,
-		"email":      user.Email,
-		"name":       user.Name,
-		"created_at": time.Now(),
+	h.logRepo.Create(c.Request.Context(), domain.RequestLog{
+		Method:    "POST",
+		Path:      "/register",
+		Status:    http.StatusCreated,
+		IP:        c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+		Timestamp: time.Now(),
 	})
 
-	c.JSON(http.StatusCreated, res)
+	c.JSON(http.StatusCreated, gin.H{"id": id})
 }
 
 func (h *UserHandler) Login(c *gin.Context) {
@@ -216,32 +154,21 @@ func (h *UserHandler) Login(c *gin.Context) {
 	}
 
 	// ตรวจสอบข้อมูลที่จำเป็น
-	if creds.Email == "" || creds.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Email and password are required"})
+	if err := validator.ValidateEmail(creds.Email); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	var user domain.User
-	err := h.Collection.FindOne(context.Background(), bson.M{
-		"email":      creds.Email,
-		"deleted_at": nil,
-	}).Decode(&user)
+	if creds.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Password is required"})
+		return
+	}
+
+	user, err := h.userRepo.FindByEmail(c.Request.Context(), creds.Email)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 		return
 	}
-
-	// เพิ่ม log เพื่อตรวจสอบ password
-	h.LogCollection.InsertOne(context.Background(), bson.M{
-		"endpoint":        "/login",
-		"method":          "POST",
-		"status":          http.StatusOK,
-		"email":           creds.Email,
-		"hashed_password": user.Password,
-		"input_password":  creds.Password,
-		"password_match":  utils.CheckPasswordHash(creds.Password, user.Password),
-		"created_at":      time.Now(),
-	})
 
 	if !utils.CheckPasswordHash(creds.Password, user.Password) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
@@ -252,11 +179,12 @@ func (h *UserHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"token": token})
 }
 
-// ตัวอย่าง ListUsers:
 func (h *UserHandler) ListUsers(c *gin.Context) {
-	cursor, _ := h.Collection.Find(context.Background(), bson.M{"deleted_at": nil})
-	var users []domain.User
-	cursor.All(context.Background(), &users)
+	users, err := h.userRepo.FindAll(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	// ซ่อน password ของทุก user
 	for i := range users {
@@ -279,11 +207,7 @@ func (h *UserHandler) GetUserByID(c *gin.Context) {
 		return
 	}
 
-	var user domain.User
-	err = h.Collection.FindOne(context.Background(), bson.M{
-		"_id":        objID,
-		"deleted_at": nil,
-	}).Decode(&user)
+	user, err := h.userRepo.FindByID(c.Request.Context(), objID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
@@ -328,16 +252,10 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	update := bson.M{}
+	update := make(map[string]interface{})
 	if updateData.Name != "" {
 		// ตรวจสอบ name ซ้ำ
-		var existingUser domain.User
-		err := h.Collection.FindOne(context.Background(), bson.M{
-			"name": updateData.Name,
-			"_id": bson.M{
-				"$ne": objID,
-			},
-		}).Decode(&existingUser)
+		_, err := h.userRepo.FindByName(c.Request.Context(), updateData.Name)
 		if err == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Name already exists"})
 			return
@@ -346,42 +264,22 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 	if updateData.Email != "" {
 		// ตรวจสอบ email ซ้ำ
-		var existingUser domain.User
-		err := h.Collection.FindOne(context.Background(), bson.M{
-			"email": updateData.Email,
-			"_id": bson.M{
-				"$ne": objID,
-			},
-		}).Decode(&existingUser)
+		_, err := h.userRepo.FindByEmail(c.Request.Context(), updateData.Email)
 		if err == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Email already exists"})
 			return
 		}
 		update["email"] = updateData.Email
 	}
-	update["updated_at"] = time.Now()
 
 	if len(update) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No data to update"})
 		return
 	}
 
-	result, err := h.Collection.UpdateOne(
-		context.Background(),
-		bson.M{
-			"_id":        objID,
-			"deleted_at": nil,
-		},
-		bson.M{"$set": update},
-	)
-
+	err = h.userRepo.Update(c.Request.Context(), objID, update)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed"})
-		return
-	}
-
-	if result.MatchedCount == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
 
@@ -401,21 +299,9 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	result, err := h.Collection.UpdateOne(
-		context.Background(),
-		bson.M{
-			"_id":        objID,
-			"deleted_at": nil,
-		},
-		bson.M{"$set": bson.M{"deleted_at": time.Now()}},
-	)
+	err = h.userRepo.Delete(c.Request.Context(), objID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Update failed"})
-		return
-	}
-
-	if result.MatchedCount == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Delete failed"})
 		return
 	}
 

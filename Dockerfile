@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine
+FROM golang:1.22.3-alpine
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY . .
 # Build the application
 RUN go build -o main ./cmd/api
 
-# Expose port
+# Expose port 8080
 EXPOSE 8080
 
 # Run the application

@@ -39,12 +39,16 @@ func setupTest() (*gin.Engine, *application.UserHandler, *mongo.Client) {
 	userCollection := db.Collection("users")
 	logCollection := db.Collection("request_logs")
 
-	userHandler := &application.UserHandler{
-		Collection:    userCollection,
-		LogCollection: logCollection,
-	}
+	// Initialize repositories
+	userRepo := infrastructure.NewMongoUserRepository(userCollection)
+	logRepo := infrastructure.NewMongoLogRepository(logCollection)
+
+	// Initialize handler
+	userHandler := application.NewUserHandler(userRepo, logRepo)
 
 	router := gin.Default()
+	router.Use(middleware.RequestLoggerToMongo(logCollection))
+
 	router.POST("/register", userHandler.Register)
 	router.POST("/login", userHandler.Login)
 
@@ -89,10 +93,9 @@ func TestRegister(t *testing.T) {
 
 	t.Run("Register Duplicate Email", func(t *testing.T) {
 		t.Log("Testing registration with duplicate email")
-		// ใช้ email เดียวกับกรณีแรก
 		user := domain.User{
 			Name:     "Test User 2",
-			Email:    "test@example.com", // ใช้ email เดิม
+			Email:    "test@example.com",
 			Password: "password123",
 		}
 		jsonData, _ := json.Marshal(user)
@@ -102,7 +105,6 @@ func TestRegister(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
-		// ตรวจสอบ response
 		var response map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &response)
 
@@ -115,9 +117,8 @@ func TestRegister(t *testing.T) {
 
 	t.Run("Register Duplicate Name", func(t *testing.T) {
 		t.Log("Testing registration with duplicate name")
-		// ใช้ชื่อเดียวกับกรณีแรก
 		user := domain.User{
-			Name:     "Test User", // ใช้ชื่อเดิม
+			Name:     "Test User",
 			Email:    "test2@example.com",
 			Password: "password123",
 		}
@@ -128,7 +129,6 @@ func TestRegister(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
-		// ตรวจสอบ response
 		var response map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &response)
 
@@ -137,6 +137,78 @@ func TestRegister(t *testing.T) {
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 		assert.Contains(t, response["error"], "Name already exists")
+	})
+
+	t.Run("Register Invalid Email Format", func(t *testing.T) {
+		t.Log("Testing registration with invalid email format")
+		user := domain.User{
+			Name:     "Test User",
+			Email:    "invalid-email",
+			Password: "Password123",
+		}
+		jsonData, _ := json.Marshal(user)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/register", bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, response["error"], "invalid email format")
+	})
+
+	t.Run("Register Invalid Password Format", func(t *testing.T) {
+		t.Log("Testing registration with invalid password format")
+		user := domain.User{
+			Name:     "Test User",
+			Email:    "test@example.com",
+			Password: "123456", // ไม่มีตัวพิมพ์ใหญ่
+		}
+		jsonData, _ := json.Marshal(user)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/register", bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, response["error"], "password must be at least 6 characters")
+	})
+
+	t.Run("Register Invalid Name Length", func(t *testing.T) {
+		t.Log("Testing registration with invalid name length")
+		user := domain.User{
+			Name:     "A", // ชื่อสั้นเกินไป
+			Email:    "test@example.com",
+			Password: "Password123",
+		}
+		jsonData, _ := json.Marshal(user)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/register", bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		var response map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, response["error"], "name must be between 2 and 50 characters")
 	})
 }
 
@@ -198,6 +270,28 @@ func TestLogin(t *testing.T) {
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 		assert.Contains(t, response["error"], "Invalid email or password")
+	})
+
+	t.Run("Login Invalid Email Format", func(t *testing.T) {
+		creds := domain.User{
+			Email:    "invalid-email",
+			Password: "Password123",
+		}
+		jsonData, _ := json.Marshal(creds)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/login", bytes.NewBuffer(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, response["error"], "invalid email format")
 	})
 }
 
@@ -288,6 +382,12 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
@@ -325,6 +425,12 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
@@ -337,6 +443,12 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
+
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
@@ -366,6 +478,12 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 
@@ -391,6 +509,12 @@ func TestUserOperations(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
 
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
+
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
@@ -399,6 +523,12 @@ func TestUserOperations(t *testing.T) {
 		req, _ := http.NewRequest("DELETE", "/users/507f1f77bcf86cd799439011", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		router.ServeHTTP(w, req)
+
+		var response map[string]string
+		json.Unmarshal(w.Body.Bytes(), &response)
+
+		t.Logf("Response status: %d", w.Code)
+		t.Logf("Response body: %v", response)
 
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})

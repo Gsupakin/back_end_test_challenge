@@ -11,9 +11,9 @@ import (
 )
 
 func ConnectMongo() *mongo.Client {
-	uri := os.Getenv("MONGO_URI")
+	uri := os.Getenv("MONGODB_URI")
 	if uri == "" {
-		log.Fatal("MONGO_URI not set in environment")
+		log.Fatal("MONGODB_URI not set in environment")
 	}
 
 	clientOpts := options.Client().ApplyURI(uri)
